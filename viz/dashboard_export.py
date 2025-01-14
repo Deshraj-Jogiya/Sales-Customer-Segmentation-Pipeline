@@ -4,6 +4,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import seaborn as sns
 
 def generate_dashboard():
@@ -35,7 +36,9 @@ def generate_dashboard():
             SUM(total_price) as total_revenue,
             COUNT(sale_id) as total_orders,
             SUM(units_sold) as total_units,
-            (SELECT COUNT(*) FROM dim_customers) as total_customers
+            (SELECT COUNT(*) FROM dim_customers) as total_customers,
+            MIN(sale_date) as first_sale,
+            MAX(sale_date) as last_sale
         FROM fact_sales
     """, conn).iloc[0]
     
@@ -89,22 +92,23 @@ def generate_dashboard():
     
     # Gridspec layout
     # 4 rows: Row 0 is title, Row 1 is KPIs, Row 2 is PCA Scatter, Row 3 is Line & Bar charts
-    gs = fig.add_gridspec(4, 4, height_ratios=[0.08, 0.12, 0.40, 0.40], hspace=0.35, wspace=0.3)
+    gs = fig.add_gridspec(4, 4, height_ratios=[0.08, 0.12, 0.40, 0.40], hspace=0.5, wspace=0.3)
     
     # A. Dashboard Title
     title_ax = fig.add_subplot(gs[0, :], facecolor='none')
     title_ax.axis('off')
-    title_ax.text(0.0, 0.5, "EXECUTIVE SALES & CUSTOMER SEGMENTATION DASHBOARD", 
+    title_ax.text(0.0, 0.75, "EXECUTIVE SALES & CUSTOMER SEGMENTATION DASHBOARD",
                   fontsize=22, fontweight='bold', color='#38bdf8', va='center')
-    title_ax.text(1.0, 0.5, f"Data Refreshed: {datetime.now().strftime('%Y-%m-%d')} | Data Period: 180 Days", 
-                  fontsize=10, color='#64748b', ha='right', va='center')
+    period = f"{kpis['first_sale']} to {kpis['last_sale']}"
+    title_ax.text(0.0, 0.05, f"Synthetic, seeded data · {period} · generated {datetime.now().strftime('%Y-%m-%d')}",
+                  fontsize=11, color='#94a3b8', va='center')
     
     # B. KPI Cards (4 subplots in row 1)
     kpi_labels = ["Total Revenue", "Total Customers", "Total Transactions", "Avg Order Value (AOV)"]
     kpi_values = [
         f"${kpis['total_revenue']:,.2f}",
-        f"{kpis['total_customers']:,}",
-        f"{kpis['total_orders']:,}",
+        f"{int(kpis['total_customers']):,}",
+        f"{int(kpis['total_orders']):,}",
         f"${kpis['total_revenue'] / kpis['total_orders']:.2f}"
     ]
     kpi_colors = ["#10b981", "#38bdf8", "#f43f5e", "#fbbf24"]
@@ -168,16 +172,16 @@ def generate_dashboard():
     ax_trend.plot(month_names, df_monthly['revenue'], marker='o', linewidth=3, color='#38bdf8', label="Monthly Revenue")
     ax_trend.fill_between(month_names, df_monthly['revenue'], alpha=0.15, color='#38bdf8')
     
-    # Adding data labels on line chart
-    for i, val in enumerate(df_monthly['revenue']):
-        ax_trend.annotate(f"${val/1000:.1f}k", 
-                          (month_names[i], val), 
-                          textcoords="offset points", 
-                          xytext=(0,10), 
-                          ha='center', 
-                          fontsize=9,
-                          fontweight='semibold',
-                          color='#cbd5e1')
+    # Label only the peak month and the latest month; every month gets a marker
+    peak = int(df_monthly['revenue'].idxmax())
+    for i in sorted({peak, len(df_monthly) - 1}):
+        val = df_monthly['revenue'].iloc[i]
+        ax_trend.annotate(f"${val/1e6:.2f}M", (month_names[i], val), textcoords="offset points", xytext=(0, 10),
+                          ha='center', fontsize=10, fontweight='semibold', color='#cbd5e1')
+    # One tick label per quarter keeps 24 months readable
+    ax_trend.set_xticks(range(0, len(month_names), 3))
+    ax_trend.set_xticklabels(month_names[::3], fontsize=9)
+    ax_trend.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v/1e6:.1f}M"))
                           
     ax_trend.set_ylabel("Revenue ($)", fontsize=11, labelpad=10)
     ax_trend.grid(True)
@@ -199,7 +203,7 @@ def generate_dashboard():
         width = bar.get_width()
         ax_cat.text(width + (df_categories['revenue'].max() * 0.02), 
                     bar.get_y() + bar.get_height()/2, 
-                    f"${width:,.2f}", 
+                    f"${width/1e6:.1f}M", 
                     ha='left', 
                     va='center', 
                     fontsize=10, 
@@ -207,6 +211,7 @@ def generate_dashboard():
                     color='#f8fafc')
                     
     ax_cat.set_xlabel("Revenue ($)", fontsize=11, labelpad=10)
+    ax_cat.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v/1e6:.0f}M"))
     ax_cat.grid(True, axis='x')
     ax_cat.set_xlim(0, df_categories['revenue'].max() * 1.15)
     ax_cat.invert_yaxis() # Display top category at the top
