@@ -15,6 +15,8 @@ and feeds an interactive Power BI report.
 - **A bug found and fixed:** the persona mapping let two personas collapse onto one cluster, silently dropping "VIP Champions". It now
   asserts that every persona is assigned, and `tests/test_segmentation.py` covers it.
 
+Measured results, each with the question, the test and the decision: [docs/FINDINGS.md](docs/FINDINGS.md).
+
 ## Architecture
 
 ```mermaid
