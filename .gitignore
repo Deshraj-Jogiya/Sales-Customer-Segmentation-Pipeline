@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases
+data/sales.db
+data/*.csv
+
+# Models
+models/rfm_model.pkl
+
+# IDEs and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
