@@ -8,18 +8,20 @@ import seaborn as sns
 
 def generate_dashboard():
     """
-    Generates a high-quality, dark-mode Matplotlib/Seaborn dashboard image.
-    Contains KPI summaries, PCA Customer Clusters, Monthly Revenue, and Category Sales.
+    Generates a high-quality, dark-mode Matplotlib/Seaborn dashboard image as
+    a quick static reference -- the real, interactive Power BI report lives
+    in powerbi/sales_dashboard.pbix, built against the CSVs this function
+    exports below.
     """
-    print("Generating Power BI style Sales Dashboard visual...")
-    
+    print("Generating a matplotlib preview dashboard (static reference; see powerbi/sales_dashboard.pbix for the real interactive Power BI report)...")
+
     # 1. Path configuration
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
     db_path = os.path.join(project_root, "data", "sales.db")
     viz_dir = os.path.join(project_root, "viz")
     os.makedirs(viz_dir, exist_ok=True)
-    export_path = os.path.join(viz_dir, "powerbi_sales_dashboard.png")
+    export_path = os.path.join(viz_dir, "matplotlib_dashboard_preview.png")
     
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"Database not found at {db_path}. Please run etl/pipeline.py and models/segmentation.py first.")
