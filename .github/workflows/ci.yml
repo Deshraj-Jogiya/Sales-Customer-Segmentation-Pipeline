@@ -15,8 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - name: Run the real pipeline end-to-end (RFM + K-Means clustering + dashboard)
-        run: |
-          python etl/pipeline.py
-          python models/segmentation.py
-          python viz/dashboard_export.py
+      - name: Run the real segmentation regression tests (pipeline + K-Means + real assertions on segment output)
+        run: python -m unittest tests.test_segmentation -v
+      - name: Generate the static preview image + Power BI CSV exports
+        run: python viz/dashboard_export.py

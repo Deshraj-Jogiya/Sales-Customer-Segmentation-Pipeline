@@ -1,6 +1,6 @@
 # Sales Analytics & RFM Customer Segmentation Pipeline
 
-A modular, end-to-end data engineering and machine learning portfolio project that simulates sales transaction history, cleanses and processes the data through an ETL pipeline, segmentizes customers using K-Means clustering, and exports clean datasets ready for Power BI dashboard integration.
+A modular, end-to-end data engineering and machine learning portfolio project that simulates sales transaction history, cleanses and processes the data through an ETL pipeline, segments customers using K-Means clustering, and feeds a real, interactive Power BI dashboard (`powerbi/sales_dashboard.pbix`).
 
 ---
 
@@ -17,9 +17,9 @@ graph TD
     E -->|PCA Reduction| F[Assign Customer Personas]
     F -->|Update| C
     C -->|Export Tables| G[Clean CSV Files]
-    G -->|Import| H[Power BI Dashboard]
-    F -->|Generate Mock Dashboard| I[dashboard_export.py]
-    I -->|PNG Graphic| J[viz/powerbi_sales_dashboard.png]
+    G -->|Import| H[Real Power BI Dashboard - powerbi/sales_dashboard.pbix]
+    F -->|Generate Preview| I[dashboard_export.py]
+    I -->|PNG Graphic| J[viz/matplotlib_dashboard_preview.png]
 ```
 
 ---
@@ -42,8 +42,12 @@ Sales-Customer-Segmentation-Pipeline/
 │   ├── segmentation.py             # RFM K-Means clustering model script
 │   └── rfm_model.pkl               # Serialized cluster and scaling weights
 ├── viz/
-│   ├── dashboard_export.py         # Matplotlib dashboard visual export
-│   └── powerbi_sales_dashboard.png # Dark-mode dashboard preview mockup
+│   ├── dashboard_export.py             # Matplotlib static preview export
+│   └── matplotlib_dashboard_preview.png # Dark-mode static reference image
+├── powerbi/
+│   └── sales_dashboard.pbix        # The real Power BI report, built in Power BI Desktop
+├── tests/
+│   └── test_segmentation.py        # Regression test for the persona-mapping bug (see below)
 ├── requirements.txt                # Python package dependencies
 └── README.md                       # Documentation & Power BI guide
 ```
@@ -125,20 +129,38 @@ Customer clustering is performed using **Recency**, **Frequency**, and **Monetar
   * ⚠️ **At Risk / Hibernating**: High recency (dormant for a long time) with low spending and transaction counts.
 * **Dimension Reduction**: Principal Component Analysis (PCA) maps the 3D RFM metrics down to a 2D plane (`pca_1`, `pca_2`) for visualization.
 
+### A real bug this caught
+The persona-mapping logic used to compute `active_clusters` by excluding only the
+"lost" cluster, not the "champions" cluster too. That left the loyal-vs-new
+comparison silently operating on the wrong pair of clusters: two persona roles
+resolved to the same cluster label, a Python dict literal with a duplicate key
+just kept the last one, and **VIP Champions vanished entirely** -- that cluster's
+real high-value customers got relabeled "Loyal Customers," and a different real
+cluster's customers were left with no label at all (invisible `NaN`, not a
+crash -- nothing showed up missing until someone looked for it). Fixed by
+excluding both `champions_cluster` and `lost_cluster` when computing
+`active_clusters`, plus two hard assertions so this class of bug fails loudly
+instead of silently dropping a segment. Covered by `tests/test_segmentation.py`,
+which runs the real pipeline end-to-end and checks the actual segment output.
+
 ---
 
-## 📊 Power BI Dashboard Ingestion Guidelines
+## 📊 Power BI Dashboard
 
-To build an interactive Power BI dashboard utilizing the pipeline's output, follow these instructions:
+**The real, interactive Power BI report is built and committed:
+[`powerbi/sales_dashboard.pbix`](powerbi/sales_dashboard.pbix)** -- open it in
+Power BI Desktop. It was built by hand following the exact steps below against
+this pipeline's real CSV output, with real relationships, real DAX measures,
+and a real K-Means cluster scatter plot (not a mockup).
+
+The steps below are kept as-is as a reproducibility guide -- this is exactly
+how the committed `.pbix` was built:
 
 ### Step 1: Import the Cleaned CSV Files
 1. Open **Power BI Desktop**.
 2. Click **Get Data** on the Home tab ribbon and select **Text/CSV**.
 3. Navigate to the `data/` folder of this repository.
-4. Import the three generated CSV tables:
-   * [dim_customers.csv](file:///g:/Sales-Customer-Segmentation-Pipeline/data/dim_customers.csv)
-   * [dim_products.csv](file:///g:/Sales-Customer-Segmentation-Pipeline/data/dim_products.csv)
-   * [fact_sales.csv](file:///g:/Sales-Customer-Segmentation-Pipeline/data/fact_sales.csv)
+4. Import the three generated CSV tables from `data/`: `dim_customers.csv`, `dim_products.csv`, `fact_sales.csv`
 5. Click **Load** to ingest the tables directly.
 
 ### Step 2: Establish Schema Relationships
@@ -155,12 +177,12 @@ For dynamic summaries, add these DAX measures to your table:
 * **Total Revenue**: `Total Revenue = SUM(fact_sales[total_price])`
 * **Total Orders**: `Total Orders = DISTINCTCOUNT(fact_sales[sale_id])`
 * **Customer Count**: `Customer Count = DISTINCTCOUNT(dim_customers[customer_id])`
-* **Average Order Value (AOV)**: `AOV = [Total Revenue] / [Total Orders]`
+* **Average Order Value (AOV)**: `AOV = DIVIDE([Total Revenue], [Total Orders])`
 
 ### Step 4: Build Visualizations
-1. **PCA Segment Cluster Chart**: Insert a **Scatter Chart**. Drag `dim_customers[pca_1]` to the X-Axis, `dim_customers[pca_2]` to the Y-Axis, and `dim_customers[segment]` to the Legend. This will perfectly match the clustering distribution generated by Python.
-2. **Monthly Growth Trend**: Insert a **Line Chart**. Drag `fact_sales[sale_date]` (grouped by Month) to the X-Axis, and your `Total Revenue` measure to the Y-Axis.
-3. **Category Revenue share**: Insert a **Treemap** or **Stacked Bar Chart**. Drag `dim_products[category]` to the Group/Legend, and `Total Revenue` to Values.
-4. **Customer Persona Slicer**: Add a **Slicer** visual using `dim_customers[segment]` to let users filter the entire dashboard by segment.
+1. **PCA Segment Cluster Chart**: Insert a **Scatter Chart**. Drag `dim_customers[pca_1]` to X-Axis, `dim_customers[pca_2]` to Y-Axis, `dim_customers[segment]` to **Legend** (colors the 4 clusters), and `dim_customers[customer_id]` to **Values** (so it plots one point per customer instead of averaging them into one dot per segment). This perfectly matches the clustering distribution generated by Python.
+2. **Monthly Growth Trend**: Insert a **Line Chart**. Drag `fact_sales[sale_date]` (grouped by Month, not the full date hierarchy) to the X-Axis, and the `Total Revenue` measure to the Y-Axis.
+3. **Category Revenue share**: Insert a **Treemap** or **Stacked Bar Chart**. Drag `dim_products[category]` to the Group/Category, and `Total Revenue` to Values.
+4. **Customer Persona Slicer**: Add a **List**-style Slicer visual using `dim_customers[segment]` as the Value field, to let users filter the entire dashboard by persona. Note: a small number of customers with zero purchase history legitimately show as "Unsegmented" (no RFM can be computed without transaction history) -- that's real data, not a bug, and was kept rather than hidden.
 
-*(Use the visual exported at [viz/powerbi_sales_dashboard.png](file:///g:/Sales-Customer-Segmentation-Pipeline/viz/powerbi_sales_dashboard.png) as a reference UI blueprint for formatting colors, fonts, and dark-theme layout properties.)*
+*(`viz/matplotlib_dashboard_preview.png` is a static Python-generated reference for colors/layout -- the actual interactive dashboard is the `.pbix` file above.)*

@@ -94,8 +94,8 @@ def run_customer_segmentation():
     # Lowest spending and highest recency (highest inactivity) is At Risk / Lost
     lost_cluster = recency_rank.iloc[3]
     # Low recency (active) but lower spending is New / Promising
-    # We find the cluster with lowest recency that is not champions
-    active_clusters = [c for c in recency_rank.index if c != lost_cluster]
+    # We find the remaining clusters after champions and lost are excluded
+    active_clusters = [c for c in recency_rank.index if c not in (champions_cluster, lost_cluster)]
     # From the remaining, the one with lower frequency/monetary is "New/Recent", and higher is "Loyal"
     if cluster_means.loc[active_clusters[0], 'monetary'] > cluster_means.loc[active_clusters[1], 'monetary']:
         loyal_cluster = active_clusters[0]
@@ -110,8 +110,18 @@ def run_customer_segmentation():
         new_cluster: "New Customers",
         lost_cluster: "At Risk / Hibernating"
     }
-    
+    # A real bug lived here once: if two of the four roles ever resolve to the
+    # same cluster label, this dict silently collapses to fewer than 4 keys
+    # and rfm['cluster'].map() below leaves the unmapped cluster's customers
+    # as NaN segment_name (invisible in a value_counts() print, not a crash).
+    assert len(segment_map) == cluster_means.shape[0], (
+        f"segment_map has {len(segment_map)} entries but there are "
+        f"{cluster_means.shape[0]} clusters -- two roles resolved to the same "
+        f"cluster label, so a real cluster of customers would go unlabeled."
+    )
+
     rfm['segment_name'] = rfm['cluster'].map(segment_map)
+    assert not rfm['segment_name'].isna().any(), "Some customers got no segment_name -- segment_map is missing a cluster."
     print("\nSegment assignments count:")
     print(rfm['segment_name'].value_counts())
     
