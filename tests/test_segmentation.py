@@ -64,6 +64,13 @@ class TestSegmentation(unittest.TestCase):
         self.assertGreater(total, 0)
         self.assertEqual(unlabeled, 0, "Some purchasing customers have no segment assigned.")
 
+    def test_fact_table_holds_over_100k_transactions(self):
+        # The README and profile describe a star schema over 100k+ transactions; keep that true.
+        conn = sqlite3.connect(DB_PATH)
+        count = conn.execute("SELECT COUNT(*) FROM fact_sales").fetchone()[0]
+        conn.close()
+        self.assertGreaterEqual(count, 100_000)
+
 
 if __name__ == "__main__":
     unittest.main()

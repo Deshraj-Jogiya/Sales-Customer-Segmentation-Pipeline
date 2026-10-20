@@ -71,6 +71,10 @@ def run_customer_segmentation():
     print("Running K-Means clustering (k=4)...")
     kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
     rfm['cluster'] = kmeans.fit_predict(rfm_scaled)
+    # Share of the total variance in the scaled RFM features explained by the 4 clusters (between-cluster / total sum of squares)
+    total_ss = float(((rfm_scaled - rfm_scaled.mean(axis=0)) ** 2).sum())
+    cluster_variance_explained = 1 - kmeans.inertia_ / total_ss
+    print(f"Variance explained by the 4 clusters: {cluster_variance_explained:.1%}")
     
     # Define Segment names based on average stats of each cluster
     # Let's inspect centroids to name them logically:
@@ -131,6 +135,7 @@ def run_customer_segmentation():
     rfm_pca = pca.fit_transform(rfm_scaled)
     rfm['pca_1'] = rfm_pca[:, 0]
     rfm['pca_2'] = rfm_pca[:, 1]
+    print(f"Variance kept by the 2-D PCA view: {pca.explained_variance_ratio_.sum():.1%}")
     
     # 7. Save segment and PCA columns back to the SQLite Database
     print("Updating customer database with segment designations...")

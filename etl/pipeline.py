@@ -10,7 +10,8 @@ from sqlalchemy import create_engine
 np.random.seed(42)
 random.seed(42)
 
-def generate_synthetic_raw_data(num_customers=300, num_products=20, days=180, end_date_str="2025-12-01"):
+def generate_synthetic_raw_data(num_customers=2000, num_products=20, days=730, end_date_str="2025-12-01",
+                                daily_tx_range=(120, 170)):
     """
     Generates realistic sales transaction data using Pareto distribution (80/20 rule).
     Also introduces some missing/dirty data to demonstrate ETL cleaning capabilities.
@@ -26,13 +27,20 @@ def generate_synthetic_raw_data(num_customers=300, num_products=20, days=180, en
         "Anthony Thompson", "Mark White", "Donald Harris", "Steven Sanchez", "Paul Clark",
         "Andrew Ramirez", "Joshua Lewis", "Kenneth Robinson", "Kevin Walker", "Brian Young"
     ]
-    # Expand customer names list to num_customers
-    while len(customer_names) < num_customers:
-        first = random.choice(customer_names).split()[0]
-        last = random.choice(["Hall", "Allen", "Young", "King", "Wright", "Lopez", "Hill", "Scott", "Green", "Adams", "Baker"])
-        name = f"{first} {last}"
-        if name not in customer_names:
-            customer_names.append(name)
+    # Expand customer names list to num_customers (every first/last combination is unique, so emails stay unique)
+    first_names = sorted({n.split()[0] for n in customer_names})
+    last_names = ["Hall", "Allen", "Young", "King", "Wright", "Lopez", "Hill", "Scott", "Green", "Adams", "Baker",
+                  "Nelson", "Carter", "Mitchell", "Roberts", "Turner", "Phillips", "Campbell", "Parker", "Evans", "Edwards",
+                  "Collins", "Stewart", "Morris", "Rogers", "Reed", "Cook", "Morgan", "Bell", "Murphy", "Bailey", "Rivera",
+                  "Cooper", "Richardson", "Cox", "Howard", "Ward", "Torres", "Peterson", "Gray", "Ramos", "James", "Watson",
+                  "Brooks", "Kelly", "Sanders", "Price", "Bennett", "Wood", "Barnes", "Ross", "Henderson", "Coleman",
+                  "Jenkins", "Perry", "Powell", "Long", "Patterson", "Hughes", "Flores", "Washington", "Butler", "Simmons",
+                  "Foster", "Gonzales", "Bryant", "Alexander", "Russell", "Griffin", "Diaz", "Hayes", "Myers", "Ford"]
+    pool = [f"{f} {l}" for f in first_names for l in last_names if f"{f} {l}" not in customer_names]
+    random.shuffle(pool)
+    if len(customer_names) + len(pool) < num_customers:
+        raise ValueError(f"Only {len(customer_names) + len(pool)} unique names available for {num_customers} customers")
+    customer_names = customer_names + pool[: num_customers - len(customer_names)]
             
     end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
     start_date = end_date - timedelta(days=days)
@@ -42,7 +50,7 @@ def generate_synthetic_raw_data(num_customers=300, num_products=20, days=180, en
     for i in range(1, num_customers + 1):
         name = customer_names[i-1]
         email = f"{name.lower().replace(' ', '.')}@example.com"
-        # Join date is spread across the 180 days
+        # Join date is spread across the simulated period
         joined_days_offset = random.randint(0, days - 10)
         joined_date = (start_date + timedelta(days=joined_days_offset)).strftime("%Y-%m-%d")
         customers_data.append({
@@ -92,45 +100,28 @@ def generate_synthetic_raw_data(num_customers=300, num_products=20, days=180, en
     customer_probs[:num_top] = 0.8 / num_top
     customer_probs[num_top:] = 0.2 / len(other_customer_ids)
     
-    # Simulate daily transactions
-    sales_data = []
-    sale_id = 1
-    
-    for day in range(days):
-        current_date = start_date + timedelta(days=day)
-        # Number of transactions per day
-        num_tx = random.randint(10, 45)
-        
-        for _ in range(num_tx):
-            # Select customer based on Pareto weights
-            cust_id = np.random.choice(df_customers['customer_id'].values, p=customer_probs)
-            
-            # Ensure customer joined before or on purchase date
-            cust_join_date = datetime.strptime(df_customers.loc[df_customers['customer_id'] == cust_id, 'joined_date'].values[0], "%Y-%m-%d")
-            if current_date < cust_join_date:
-                # If they hadn't joined yet, set purchase date to their join date or later
-                tx_date = cust_join_date
-            else:
-                tx_date = current_date
-                
-            prod_idx = random.randint(0, len(df_products) - 1)
-            prod = df_products.iloc[prod_idx]
-            
-            # Quantity sold (skewed towards 1 or 2)
-            units = int(np.random.choice([1, 2, 3, 4, 5], p=[0.6, 0.25, 0.1, 0.04, 0.01]))
-            
-            sales_data.append({
-                "sale_id": sale_id,
-                "customer_id": int(cust_id),
-                "product_id": int(prod['product_id']),
-                "units_sold": units,
-                # Total price will be re-calculated during ETL based on actual product price
-                "total_price": None, 
-                "sale_date": tx_date.strftime("%Y-%m-%d")
-            })
-            sale_id += 1
-            
-    df_sales = pd.DataFrame(sales_data)
+    # Simulate daily transactions (vectorised: about 105,000 rows for the default two years)
+    tx_per_day = np.random.randint(daily_tx_range[0], daily_tx_range[1] + 1, size=days)
+    day_offsets = np.repeat(np.arange(days), tx_per_day)
+    n_tx = len(day_offsets)
+    cust_ids = np.random.choice(df_customers['customer_id'].values, size=n_tx, p=customer_probs)
+    tx_dates = start_date + pd.to_timedelta(day_offsets, unit="D")
+    # A customer can't buy before joining: such purchases move to the join date
+    join_dates = pd.to_datetime(df_customers.set_index('customer_id')['joined_date']).reindex(cust_ids).values
+    tx_dates = np.maximum(tx_dates.values, join_dates)
+    prod_ids = np.random.randint(1, len(df_products) + 1, size=n_tx)
+    # Quantity sold (skewed towards 1 or 2)
+    units = np.random.choice([1, 2, 3, 4, 5], size=n_tx, p=[0.6, 0.25, 0.1, 0.04, 0.01]).astype(float)
+
+    df_sales = pd.DataFrame({
+        "sale_id": np.arange(1, n_tx + 1),
+        "customer_id": cust_ids.astype(int),
+        "product_id": prod_ids.astype(int),
+        "units_sold": units,
+        # Total price is re-calculated during ETL from the cleaned product price
+        "total_price": None,
+        "sale_date": pd.to_datetime(tx_dates).strftime("%Y-%m-%d"),
+    })
     
     # Randomly inject some NaN units_sold to simulate cleaning
     # We will resolve this during ETL
